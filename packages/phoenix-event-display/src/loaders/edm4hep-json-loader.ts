@@ -10,7 +10,7 @@ import {
   MissingEnergyParams,
 } from 'src/lib/types/event-data';
 import { edm4hep } from 'src/lib/types/edm4hep';
-import { ObjectID, Vector3d } from 'src/lib/types/edm4hep-schemas/utils';
+import { ObjectID } from 'src/lib/types/edm4hep-schemas/utils';
 
 /**
  * Edm4hepJsonLoader for loading EDM4hep json dumps
@@ -150,8 +150,6 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
       | edm4hep.Association[] // Schema 1
       | edm4hep.Link[]; // From Schema 2 Onwards
 
-    console.log(linkCollection);
-
     const reconstructedParticleCollection = rawEvent.ReconstructedParticles
       ?.collection as edm4hep.ReconstructedParticle[];
 
@@ -212,6 +210,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
     trackCollection.forEach((rawTrack: edm4hep.Track) => {
       const pos: number[][] = []; // An array of positions is needed to render the tracks as bars
 
+      // @todo trackerhits might always exist
       if ('trackerHits' in rawTrack && rawTrack.trackerHits.length > 0) {
         rawTrack.trackerHits.forEach((trackerHitRef: ObjectID) => {
           const trackerHits: edm4hep.Hit[] = this.getCollByID(
@@ -247,7 +246,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         // @todo pt (transverse momentum requires the magnetic field)
         chi2: rawTrack.chi2, // no use by phoenix-object.ts
         dof: rawTrack.ndf, // no use by phoenix-object.ts
-        color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'], // tracks reeceive hex color without '#'
+        color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'], // tracks receive hex color without '#'
         linewidth: 2,
       });
     });
@@ -290,6 +289,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
           type: 'CircularPoint',
           pos,
           color: `#${colorOverlay}`,
+          size: 2,
         });
       } else if ((rawHit.quality & (1 << 30)) !== 0) {
         /* BITProducedBySecondary = 30
@@ -299,6 +299,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
           type: 'CircularPoint',
           pos,
           color: `#${colorSecondary}`,
+          size: 2,
         });
       } else {
         let ref: ObjectID | null = null;
@@ -311,20 +312,21 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
           ref = rawHit.MCParticle;
         }
 
-        const pdg =
-          ref !== null
-            ? (this.getCollByID(rawEvent, ref.collectionID)?.[ref.index]?.PDG ??
-              null)
-            : null;
+        if (ref !== null) {
+          const pdg =
+            this.getCollByID(rawEvent, ref.collectionID)?.[ref.index]?.PDG ??
+            null;
 
-        const particleType =
-          Edm4hepJsonLoader.pidNames[pdg] ?? edm4hep.ParticleType.Other;
+          const particleType =
+            Edm4hepJsonLoader.pidNames[pdg] ?? edm4hep.ParticleType.Other;
 
-        categories[particleType].push({
-          type: 'CircularPoint',
-          pos,
-          color: `#${Edm4hepJsonLoader.pidColors[particleType]}`,
-        });
+          categories[particleType].push({
+            type: 'CircularPoint',
+            pos,
+            color: `#${Edm4hepJsonLoader.pidColors[particleType]}`,
+            size: 2,
+          });
+        }
       }
     });
 
@@ -406,13 +408,13 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
       clusters.push({
         eta: rho === 0 ? 0 : Math.asinh(z / rho), // Check because '0 / 0 = NaN'
         phi: Math.atan2(y, x), // Safer equivalent to 'Math.acos(x / rho) * Math.sign(y)'
-        energy: rawCluster.energy,
+        energy: rawCluster.energy * 100, // @todo more energy -> smaller porportion. by why 100 specifically?
         radius: Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2) + Math.pow(z, 2)),
         z,
         color: this.convHSLtoHEX(hue, rawCluster.energy),
-        theta: rawCluster.iTheta,
+        theta: Math.atan2(rho, z),
         opacity: this.valToOpacity(rawCluster.energy, 1e-3, 1),
-        // side (overrides side width of the cluster box)
+        side: 4, // (overrides side width of the cluster box)
         // length (overrides length (depth) of the cluster box)
       });
     });
@@ -437,7 +439,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         eta,
         phi: Math.atan2(py, px), // Safer equivalent to 'Math.acos(px / pt) * Math.sign(py)'
         theta: 2 * Math.atan(Math.exp(-eta)),
-        energy: rawJet.energy,
+        energy: rawJet.energy * 1000,
         et: p === 0 ? 0 : (rawJet.energy * pt) / p,
         // coneR (overrides the cone radius for visualization width)
         origin_X: rawJet.referencePoint.x,
