@@ -150,6 +150,8 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
       | edm4hep.Association[] // Schema 1
       | edm4hep.Link[]; // From Schema 2 Onwards
 
+    console.log(linkCollection);
+
     const reconstructedParticleCollection = rawEvent.ReconstructedParticles
       ?.collection as edm4hep.ReconstructedParticle[];
 
@@ -160,17 +162,17 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
       ?.collection as edm4hep.Track[];
 
     if (
-      linkCollection &&
-      reconstructedParticleCollection &&
-      mcParticleCollection &&
-      eFlowTrackCollection
+      !linkCollection ||
+      !reconstructedParticleCollection ||
+      !mcParticleCollection ||
+      !eFlowTrackCollection
     )
       return;
 
     linkCollection.forEach((link: edm4hep.Association | edm4hep.Link) => {
       const recIndex = 'rec' in link ? link.rec.index : link.from.index;
       const simIndex = 'sim' in link ? link.sim.index : link.to.index;
-      const pdgid = mcParticleCollection[simIndex].PDG;
+      const pdgid = Math.abs(mcParticleCollection[simIndex].PDG);
 
       reconstructedParticleCollection[recIndex].tracks.forEach(({ index }) => {
         eFlowTrackCollection[index].pid =
