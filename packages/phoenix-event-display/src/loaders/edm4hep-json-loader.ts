@@ -27,15 +27,16 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
     321: edm4hep.ParticleType.Kaon,
   };
 
-  /** Colors per particle type, shared between tracks and hits */
+  /** Colors per particle type, shared between tracks and hits
+   *  Tracks receive hex color without '#' */
   private static readonly pidColors: Record<edm4hep.ParticleType, string> = {
-    [edm4hep.ParticleType.Electron]: '#00ff00',
-    [edm4hep.ParticleType.Muon]: '#ff00ff',
-    [edm4hep.ParticleType.Photon]: '#ff0000',
-    [edm4hep.ParticleType.Pion]: '#a52a2a',
-    [edm4hep.ParticleType.Proton]: '#778899',
-    [edm4hep.ParticleType.Kaon]: '#5f9ea0',
-    [edm4hep.ParticleType.Other]: '#0000cd',
+    [edm4hep.ParticleType.Electron]: '00ff00',
+    [edm4hep.ParticleType.Muon]: 'ff00ff',
+    [edm4hep.ParticleType.Photon]: 'ff0000',
+    [edm4hep.ParticleType.Pion]: 'a52a2a',
+    [edm4hep.ParticleType.Proton]: '778899',
+    [edm4hep.ParticleType.Kaon]: '5f9ea0',
+    [edm4hep.ParticleType.Other]: '0000cd',
   };
 
   /**  Event data loaded from EDM4hep JSON file */
@@ -244,7 +245,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         // @todo pt (transverse momentum requires the magnetic field)
         chi2: rawTrack.chi2, // no use by phoenix-object.ts
         dof: rawTrack.ndf, // no use by phoenix-object.ts
-        color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'],
+        color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'], // tracks reeceive hex color without '#'
         linewidth: 2,
       });
     });
@@ -286,7 +287,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         categories.overlay.push({
           type: 'CircularPoint',
           pos,
-          color: colorOverlay,
+          color: `#${colorOverlay}`,
         });
       } else if ((rawHit.quality & (1 << 30)) !== 0) {
         /* BITProducedBySecondary = 30
@@ -295,7 +296,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         categories.secondary.push({
           type: 'CircularPoint',
           pos,
-          color: colorSecondary,
+          color: `#${colorSecondary}`,
         });
       } else {
         let ref: ObjectID | null = null;
@@ -320,7 +321,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         categories[particleType].push({
           type: 'CircularPoint',
           pos,
-          color: Edm4hepJsonLoader.pidColors[particleType],
+          color: `#${Edm4hepJsonLoader.pidColors[particleType]}`,
         });
       }
     });
