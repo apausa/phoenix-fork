@@ -1101,18 +1101,12 @@ export class ThreeManager {
   /**
    * Clears event data of the scene.
    * Also clears all selections and hover outlines to prevent stale references
-   * and orphaned outline helpers when event data is disposed.
+   * to disposed mesh objects in the OutlinePass.
    */
   public clearEventData() {
-    // Clear all selections before disposing event data to avoid:
-    // 1. Memory leak from orphaned outline helpers remaining in the scene
-    // 2. Visual artifacts from old selection outlines persisting
-    // 3. Stale references to disposed mesh objects in selectedOutlines Map
     if (this.selectionManager) {
       this.selectionManager.clearAllSelections();
     }
-
-    // Clear hover outline separately as it's not included in clearAllSelections
     if (this.effectsManager) {
       this.effectsManager.setHoverOutline(null);
     }
@@ -1131,8 +1125,7 @@ export class ThreeManager {
 
   /**
    * Extend or reset track collection geometries to a specified radius.
-   * This method clears all selections before modifying track geometries to prevent
-   * stale outline helpers that reference old geometry data.
+   * Clears selections first so OutlinePass doesn't reference stale geometry.
    *
    * @param collectionName Name of the track collection to extend.
    * @param radius The radius to extend tracks to.
@@ -1143,10 +1136,6 @@ export class ThreeManager {
     radius: number,
     enable: boolean,
   ) {
-    // Clear all selections before modifying geometries to prevent:
-    // 1. Stale EdgesGeometry in outline helpers (outlines showing old track length)
-    // 2. Visual desynchronization between track and its selection outline
-    // 3. Orphaned outline helpers referencing disposed geometry data
     if (this.selectionManager) {
       this.selectionManager.clearAllSelections();
     }
@@ -1154,7 +1143,6 @@ export class ThreeManager {
       this.effectsManager.setHoverOutline(null);
     }
 
-    // Now safe to modify track geometries
     this.sceneManager.extendCollectionTracks(collectionName, radius, enable);
   }
 
