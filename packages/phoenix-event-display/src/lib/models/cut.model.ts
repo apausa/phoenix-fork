@@ -58,6 +58,22 @@ export class Cut {
   }
 
   /**
+   * Create a deep copy of this Cut with the same field, bounds, step,
+   * and active flags. The clone gets fresh defaults equal to the
+   * current values so that reset() works independently.
+   */
+  clone(): Cut {
+    return new Cut(
+      this.field,
+      this.minValue,
+      this.maxValue,
+      this.step,
+      this.minCutActive,
+      this.maxCutActive,
+    );
+  }
+
+  /**
    * Reset the minimum and maximum value of the cut to default.
    */
   reset() {
