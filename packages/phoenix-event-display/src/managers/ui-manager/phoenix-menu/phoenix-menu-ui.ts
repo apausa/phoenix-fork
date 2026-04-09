@@ -31,6 +31,9 @@ export class PhoenixMenuUI implements PhoenixUI<PhoenixMenuNode> {
     [key: string]: { enabled: boolean; radius: number };
   } = {};
 
+  /** Registry of active cuts per collection name for re-application on event switch. */
+  private collectionCuts: { [collectionName: string]: Cut[] } = {};
+
   /**
    * Create Phoenix menu UI with different controls related to detector geometry and event data.
    * @param phoenixMenuRoot Root node of the Phoenix menu.
@@ -183,6 +186,8 @@ export class PhoenixMenuUI implements PhoenixUI<PhoenixMenuNode> {
       this.eventFolderState = this.eventFolder.getNodeState();
       this.eventFolder.remove();
     }
+    this.collectionCuts = {};
+
     this.eventFolder = this.phoenixMenuRoot.addChild(
       'Event Data',
       (value: boolean) => {
@@ -250,6 +255,7 @@ export class PhoenixMenuUI implements PhoenixUI<PhoenixMenuNode> {
     this.addDrawOptions(collectionNode, collectionName);
 
     if (cuts && cuts.length > 0) {
+      this.collectionCuts[collectionName] = cuts;
       this.addCutOptions(collectionNode, collectionName, cuts);
     }
 
@@ -524,6 +530,15 @@ export class PhoenixMenuUI implements PhoenixUI<PhoenixMenuNode> {
   public loadEventFolderState() {
     if (this.eventFolderState) {
       this.eventFolder.loadStateFromJSON(this.eventFolderState);
+    }
+  }
+  /**
+   * Re-applies all active cuts to their collections after an event switch.
+   * Called by UIManager after buildEventData() completes.
+   */
+  public reapplyCollectionCuts(): void {
+    for (const [collectionName, cuts] of Object.entries(this.collectionCuts)) {
+      this.sceneManager.collectionFilter(collectionName, cuts);
     }
   }
 }

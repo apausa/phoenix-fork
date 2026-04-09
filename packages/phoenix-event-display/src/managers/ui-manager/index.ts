@@ -609,6 +609,7 @@ export class UIManager {
       (uiMenu) => uiMenu instanceof PhoenixMenuUI,
     ) as PhoenixMenuUI;
     phoenixMenuUI?.loadEventFolderState();
+    phoenixMenuUI?.reapplyCollectionCuts();
   }
 
   /**
