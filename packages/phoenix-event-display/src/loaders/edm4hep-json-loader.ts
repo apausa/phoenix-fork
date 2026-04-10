@@ -141,14 +141,14 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
 
   /* Define particle PID based on link */
   private assignPID(rawEvent: any) {
-    // Link collection name and type vary by schema:
-    // - Schema 1: MCRecoAssociations
-    // - Schema 2: MCRecoAssociations or RecoMCLink
-    // - Schema 3: RecoMCLink
-    const linkCollection = (rawEvent.MCRecoAssociations ?? rawEvent.RecoMCLink)
-      ?.collection as
-      | edm4hep.Association[] // Schema 1
-      | edm4hep.Link[]; // From Schema 2 Onwards
+    let linkCollection: edm4hep.Link[] | edm4hep.Association[] = null;
+
+    if ('MCRecoAssociations' in rawEvent)
+      // Schema 1 and 2
+      linkCollection = rawEvent.MCRecoAssociations.collection;
+    else if ('RecoMCLink' in rawEvent)
+      // Schema 2 and 3
+      linkCollection = rawEvent.RecoMCLink.collection;
 
     const reconstructedParticleCollection = rawEvent.ReconstructedParticles
       ?.collection as edm4hep.ReconstructedParticle[];
@@ -247,7 +247,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         chi2: rawTrack.chi2, // no use by phoenix-object.ts
         dof: rawTrack.ndf, // no use by phoenix-object.ts
         color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'], // tracks receive hex color without '#'
-        linewidth: 2,
+        linewidth: 1,
       });
     });
 
@@ -381,7 +381,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         phi: Math.atan2(y, x), // Safer equivalent to 'Math.acos(x / rho) * Math.sign(y)'
         energy: rawCell.energy,
         radius: Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2) + Math.pow(z, 2)),
-        z,
+        // z,
         color: this.convHSLtoHEX(hue, rawCell.energy),
         opacity: this.valToOpacity(rawCell.energy, 1e-3, 1),
         side: side,
@@ -397,7 +397,6 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
     caloClusterCollection: edm4hep.CaloCluster[],
   ): CaloClusterParams[] {
     const clusters: CaloClusterParams[] = [];
-    const hue = Math.floor(Math.random() * 361);
 
     caloClusterCollection.forEach((rawCluster) => {
       const x = rawCluster.position.x * 0.1;
@@ -407,15 +406,15 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
 
       clusters.push({
         eta: rho === 0 ? 0 : Math.asinh(z / rho), // Check because '0 / 0 = NaN'
-        phi: Math.atan2(y, x), // Safer equivalent to 'Math.acos(x / rho) * Math.sign(y)'
-        energy: rawCluster.energy * 100, // @todo more energy -> smaller porportion. by why 100 specifically?
+        phi: Math.atan2(y, x),
+        energy: rawCluster.energy * 100,
         radius: Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2) + Math.pow(z, 2)),
-        z,
-        color: this.convHSLtoHEX(hue, rawCluster.energy),
-        theta: Math.atan2(rho, z),
-        opacity: this.valToOpacity(rawCluster.energy, 1e-3, 1),
-        side: 4, // (overrides side width of the cluster box)
+        // z: (overrides z position)
+        side: 4,
         // length (overrides length (depth) of the cluster box)
+        // color (overrides color for rendering)
+        theta: Math.atan2(rho, z),
+        // opacity (overrides opacity value)
       });
     });
 
@@ -425,7 +424,6 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
   /** Return jets */
   private getJets(jetCollection: edm4hep.ReconstructedParticle[]): JetParams[] {
     const jets: JetParams[] = [];
-    const hue = Math.floor(Math.random() * 358);
 
     jetCollection.forEach((rawJet) => {
       const px: number = rawJet.momentum.x;
@@ -437,15 +435,15 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
 
       jets.push({
         eta,
-        phi: Math.atan2(py, px), // Safer equivalent to 'Math.acos(px / pt) * Math.sign(py)'
+        phi: Math.atan2(py, px),
         theta: 2 * Math.atan(Math.exp(-eta)),
         energy: rawJet.energy * 1000,
         et: p === 0 ? 0 : (rawJet.energy * pt) / p,
-        // coneR (overrides the cone radius for visualization width)
+        // coneR: (overrides cone radius for visualization width)
         origin_X: rawJet.referencePoint.x,
         origin_Y: rawJet.referencePoint.y,
         origin_Z: rawJet.referencePoint.z,
-        color: this.convHSLtoHEX(hue, rawJet.energy),
+        // color: (overrides color for rendering)
       });
     });
 
