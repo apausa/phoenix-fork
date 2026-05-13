@@ -8,9 +8,9 @@ import {
   CaloClusterParams,
   JetParams,
   MissingEnergyParams,
-} from 'src/lib/types/event-data';
-import { edm4hep } from 'src/lib/types/edm4hep';
-import { ObjectID } from 'src/lib/types/edm4hep-schemas/utils';
+} from '../lib/types/event-data';
+import { edm4hep } from '../lib/types/edm4hep';
+import { ObjectID } from '../lib/types/edm4hep-schemas/utils';
 
 /**
  * Edm4hepJsonLoader for loading EDM4hep json dumps
