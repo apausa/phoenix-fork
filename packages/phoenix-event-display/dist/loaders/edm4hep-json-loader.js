@@ -1,0 +1,414 @@
+import { PhoenixLoader } from './phoenix-loader';
+import { edm4hep } from '../lib/types/edm4hep';
+/**
+ * Edm4hepJsonLoader for loading EDM4hep json dumps
+ */
+export class Edm4hepJsonLoader extends PhoenixLoader {
+    /** Create Edm4hepJsonLoader */
+    constructor() {
+        super();
+        this.eventData = {};
+    }
+    /** Put raw EDM4hep JSON event data into the loader */
+    setRawEventData(rawEventData) {
+        this.rawEventData = rawEventData;
+    }
+    /** Process raw EDM4hep JSON event data into the Phoenix format */
+    processEventData() {
+        // Iterate over events
+        Object.entries(this.rawEventData).forEach(([eventName, rawEvent]) => {
+            const newEvent = {
+                'event number': 0,
+                'run number': 0,
+                Vertices: {},
+                Tracks: {},
+                Hits: {},
+                CaloClusters: {},
+                CaloCells: {},
+                Jets: {},
+                MissingEnergy: {},
+            };
+            this.assignPID(rawEvent);
+            // Iterate over event collections
+            Object.entries(rawEvent).forEach(([collName, { collType, collection }]) => {
+                switch (collType) {
+                    case 'edm4hep::EventHeaderCollection':
+                        newEvent['event number'] = Number(collection[0].eventNumber ?? 0);
+                        newEvent['run number'] = Number(collection[0].runNumber ?? 0);
+                        break;
+                    case 'edm4hep::VertexCollection':
+                        newEvent.Vertices[collName] = this.getVertices(collection);
+                        break;
+                    case 'edm4hep::TrackCollection':
+                        this.getTracks(rawEvent, collection).forEach(([label, arr]) => {
+                            newEvent.Tracks[`${collName} | ${label}`] = arr;
+                        });
+                        break;
+                    case 'edm4hep::TrackerHitCollection':
+                    case 'edm4hep::TrackerHit3DCollection':
+                    case 'edm4hep::SimTrackerHitCollection':
+                        // case 'edm4hep::TrackerHitPlaneCollection':
+                        // case 'edm4hep::SenseWireHitCollection':
+                        this.getHits(rawEvent, collection).forEach(([label, arr]) => {
+                            newEvent.Hits[`${collName} | ${label}`] = arr;
+                        });
+                        break;
+                    case 'edm4hep::CalorimeterHitCollection':
+                    case 'edm4hep::SimCalorimeterHitCollection':
+                        newEvent.CaloCells[collName] = this.getCaloCells(collection);
+                        break;
+                    case 'edm4hep::ClusterCollection':
+                        newEvent.CaloClusters[collName] =
+                            this.getCaloClusters(collection);
+                        break;
+                    case 'edm4hep::ReconstructedParticleCollection':
+                        if (collName === 'Jet')
+                            newEvent.Jets[collName] = this.getJets(collection);
+                        else if (collName.toLowerCase().includes('missing'))
+                            newEvent.MissingEnergy[collName] =
+                                this.getMissingEnergy(collection);
+                        break;
+                }
+            });
+            this.eventData[eventName] = newEvent;
+            console.log(eventName, newEvent);
+        });
+        return true;
+    }
+    /** Output event data in Phoenix compatible format */
+    getEventData() {
+        return this.eventData;
+    }
+    /** Return number of events */
+    getNumEvents() {
+        return Object.keys(this.rawEventData).length;
+    }
+    /* Define particle PID based on link */
+    assignPID(rawEvent) {
+        let linkCollection = null;
+        if ('MCRecoAssociations' in rawEvent)
+            // Schema 1 and 2
+            linkCollection = rawEvent.MCRecoAssociations.collection;
+        else if ('RecoMCLink' in rawEvent)
+            // Schema 2 and 3
+            linkCollection = rawEvent.RecoMCLink.collection;
+        const reconstructedParticleCollection = rawEvent.ReconstructedParticles
+            ?.collection;
+        const mcParticleCollection = rawEvent.Particle
+            ?.collection;
+        const eFlowTrackCollection = rawEvent.EFlowTrack
+            ?.collection;
+        if (!linkCollection ||
+            !reconstructedParticleCollection ||
+            !mcParticleCollection ||
+            !eFlowTrackCollection)
+            return;
+        linkCollection.forEach((link) => {
+            const recIndex = 'rec' in link ? link.rec.index : link.from.index;
+            const simIndex = 'sim' in link ? link.sim.index : link.to.index;
+            const pdgid = Math.abs(mcParticleCollection[simIndex].PDG);
+            reconstructedParticleCollection[recIndex].tracks.forEach(({ index }) => {
+                eFlowTrackCollection[index].pid =
+                    Edm4hepJsonLoader.pidNames[pdgid] ?? edm4hep.ParticleType.Other;
+            });
+        });
+    }
+    /** Return vertices */
+    getVertices(vertexCollection) {
+        const color = this.randomColor();
+        return vertexCollection.map((rawVertex) => ({
+            pos: [
+                rawVertex.position.x * 0.1,
+                rawVertex.position.y * 0.1,
+                rawVertex.position.z * 0.1,
+            ],
+            size: 1,
+            vertexType: 'type' in rawVertex ? rawVertex.type : null,
+            color,
+        }));
+    }
+    /** Return tracks */
+    getTracks(rawEvent, trackCollection) {
+        const categories = Object.fromEntries(Object.keys(Edm4hepJsonLoader.pidColors).map((type) => [
+            type,
+            [],
+        ]));
+        trackCollection.forEach((rawTrack) => {
+            const pos = []; // An array of positions is needed to render the tracks as bars
+            // @todo trackerhits might always exist
+            if ('trackerHits' in rawTrack && rawTrack.trackerHits.length > 0) {
+                rawTrack.trackerHits.forEach((trackerHitRef) => {
+                    const trackerHits = this.getCollByID(rawEvent, trackerHitRef.collectionID);
+                    pos.push([
+                        trackerHits[trackerHitRef.index].position.x * 0.1,
+                        trackerHits[trackerHitRef.index].position.y * 0.1,
+                        trackerHits[trackerHitRef.index].position.z * 0.1,
+                    ]);
+                });
+            }
+            else {
+                rawTrack.trackStates.forEach((trackState) => {
+                    pos.push([
+                        trackState.referencePoint.x * 0.1,
+                        trackState.referencePoint.y * 0.1,
+                        trackState.referencePoint.z * 0.1,
+                    ]);
+                });
+            }
+            const category = rawTrack.pid ?? 'other';
+            categories[category].push({
+                pos,
+                // @todo dparams (helix parameters for Runge-Kutta extrapolation: qOverP requires the magnetic field)
+                // @todo phi (aimuthal angle)
+                // @todo eta (peudorapidity)
+                // @todo d0 (tansverse impact parameter)
+                // @todo z0 (lngitudinal impact parameter)
+                // @todo pt (transverse momentum requires the magnetic field)
+                chi2: rawTrack.chi2, // no use by phoenix-object.ts
+                dof: rawTrack.ndf, // no use by phoenix-object.ts
+                color: Edm4hepJsonLoader.pidColors[rawTrack.pid ?? 'other'], // tracks receive hex color without '#'
+                linewidth: 1,
+            });
+        });
+        return Object.entries(categories).filter(([, arr]) => arr.length !== 0);
+    }
+    /** Return tracker hits */
+    getHits(rawEvent, hitCollection) {
+        const categories = Object.fromEntries([
+            ...Object.keys(Edm4hepJsonLoader.pidColors).map((type) => [
+                type,
+                [],
+            ]),
+            ['overlay', []],
+            ['secondary', []],
+        ]);
+        const colorOverlay = this.randomColor();
+        const colorSecondary = this.randomColor();
+        hitCollection.forEach((rawHit) => {
+            const pos = [
+                rawHit.position.x * 0.1,
+                rawHit.position.y * 0.1,
+                rawHit.position.z * 0.1,
+            ];
+            if ((rawHit.quality & (1 << 31)) !== 0) {
+                /* BITOverlay = 31
+                 * https://github.com/key4hep/EDM4hep/blob/fe5a54046a91a7e648d0b588960db7841aebc670/edm4hep.yaml#L349
+                 */
+                categories.overlay.push({
+                    type: 'CircularPoint',
+                    pos,
+                    color: `#${colorOverlay}`,
+                    size: 2,
+                });
+            }
+            else if ((rawHit.quality & (1 << 30)) !== 0) {
+                /* BITProducedBySecondary = 30
+                 * https://github.com/key4hep/EDM4hep/blob/fe5a54046a91a7e648d0b588960db7841aebc670/edm4hep.yaml#L350
+                 */
+                categories.secondary.push({
+                    type: 'CircularPoint',
+                    pos,
+                    color: `#${colorSecondary}`,
+                    size: 2,
+                });
+            }
+            else {
+                let ref = null;
+                if ('particle' in rawHit && rawHit.particle.length > 0) {
+                    // 'particle' exists in type SimTrackerHit from Schema2 onwards
+                    ref = rawHit.particle[0];
+                }
+                else if ('MCParticle' in rawHit) {
+                    // 'MCParticle' only exists in type SimTrackerHit within Schema1
+                    ref = rawHit.MCParticle;
+                }
+                if (ref !== null) {
+                    const pdg = this.getCollByID(rawEvent, ref.collectionID)?.[ref.index]?.PDG ??
+                        null;
+                    const particleType = Edm4hepJsonLoader.pidNames[pdg] ?? edm4hep.ParticleType.Other;
+                    categories[particleType].push({
+                        type: 'CircularPoint',
+                        pos,
+                        color: `#${Edm4hepJsonLoader.pidColors[particleType]}`,
+                        size: 2,
+                    });
+                }
+            }
+        });
+        return Object.entries(categories).filter(([, arr]) => arr.length !== 0);
+    }
+    /** Returns Calo cells */
+    getCaloCells(caloCellCollection) {
+        const cells = [];
+        const hue = Math.floor(Math.random() * 358);
+        // Find smallest distance between cell centers and use it as cell size
+        let drmin = 1e9;
+        for (let i = 0; i < 1e4; ++i) {
+            const j = Math.floor(Math.random() * caloCellCollection.length);
+            const k = Math.floor(Math.random() * caloCellCollection.length);
+            if (j === k) {
+                continue;
+            }
+            const dx2 = Math.pow(caloCellCollection[j].position.x - caloCellCollection[k].position.x, 2);
+            const dy2 = Math.pow(caloCellCollection[j].position.y - caloCellCollection[k].position.y, 2);
+            const dz2 = Math.pow(caloCellCollection[j].position.z - caloCellCollection[k].position.z, 2);
+            const dr = Math.sqrt(dx2 + dy2 + dz2);
+            if (dr < drmin) {
+                drmin = dr;
+            }
+        }
+        const side = Math.floor(drmin) * 0.1 > 1 ? Math.floor(drmin) * 0.1 : 1;
+        caloCellCollection.forEach((rawCell) => {
+            const x = rawCell.position.x * 0.1;
+            const y = rawCell.position.y * 0.1;
+            const z = rawCell.position.z * 0.1;
+            const rho = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+            cells.push({
+                eta: rho === 0 ? 0 : Math.asinh(z / rho), // Check because '0 / 0 = NaN'
+                phi: Math.atan2(y, x), // Safer equivalent to 'Math.acos(x / rho) * Math.sign(y)'
+                energy: rawCell.energy,
+                radius: Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2) + Math.pow(z, 2)),
+                // z,
+                color: this.convHSLtoHEX(hue, rawCell.energy),
+                opacity: this.valToOpacity(rawCell.energy, 1e-3, 1),
+                side: side,
+                length: side, // expecting cells in multiple layers
+            });
+        });
+        return cells;
+    }
+    /** Return Calo clusters */
+    getCaloClusters(caloClusterCollection) {
+        const clusters = [];
+        caloClusterCollection.forEach((rawCluster) => {
+            const x = rawCluster.position.x * 0.1;
+            const y = rawCluster.position.y * 0.1;
+            const z = rawCluster.position.z * 0.1;
+            const rho = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+            clusters.push({
+                eta: rho === 0 ? 0 : Math.asinh(z / rho), // Check because '0 / 0 = NaN'
+                phi: Math.atan2(y, x),
+                energy: rawCluster.energy * 100,
+                radius: Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2) + Math.pow(z, 2)),
+                // z: (overrides z position)
+                side: 4,
+                // length (overrides length (depth) of the cluster box)
+                // color (overrides color for rendering)
+                theta: Math.atan2(rho, z),
+                // opacity (overrides opacity value)
+            });
+        });
+        return clusters;
+    }
+    /** Return jets */
+    getJets(jetCollection) {
+        const jets = [];
+        jetCollection.forEach((rawJet) => {
+            const px = rawJet.momentum.x;
+            const py = rawJet.momentum.y;
+            const pz = rawJet.momentum.z;
+            const p = Math.sqrt(px * px + py * py + pz * pz);
+            const pt = Math.sqrt(Math.pow(px, 2) + Math.pow(py, 2));
+            const eta = pt === 0 ? 0 : Math.asinh(pz / pt);
+            jets.push({
+                eta,
+                phi: Math.atan2(py, px),
+                theta: 2 * Math.atan(Math.exp(-eta)),
+                energy: rawJet.energy * 1000,
+                et: p === 0 ? 0 : (rawJet.energy * pt) / p,
+                // coneR: (overrides cone radius for visualization width)
+                origin_X: rawJet.referencePoint.x,
+                origin_Y: rawJet.referencePoint.y,
+                origin_Z: rawJet.referencePoint.z,
+                // color: (overrides color for rendering)
+            });
+        });
+        return jets;
+    }
+    /** Return missing energy */
+    getMissingEnergy(missingEnergyCollection) {
+        const missingEnergies = [];
+        missingEnergyCollection.forEach((rawMissingEnergy) => {
+            const px = rawMissingEnergy.momentum.x;
+            const py = rawMissingEnergy.momentum.y;
+            const pz = rawMissingEnergy.momentum.z;
+            const p = Math.sqrt(Math.pow(px, 2) + Math.pow(py, 2) + Math.pow(pz, 2));
+            missingEnergies.push({
+                etx: ((rawMissingEnergy.energy * px) / p) * 10,
+                ety: ((rawMissingEnergy.energy * py) / p) * 10,
+                color: '#ff69b4',
+            });
+        });
+        return missingEnergies;
+    }
+    /** Return a random colour */
+    randomColor() {
+        return `#${Math.floor(Math.random() * 16777215)
+            .toString(16)
+            .padStart(6, '0')
+            .toUpperCase()}`;
+    }
+    /** Get the required collection */
+    getCollByID(event, id) {
+        const coll = Object.values(event).find((c) => c?.collID === id);
+        return coll?.collection;
+    }
+    /** Return a lightness value from the passed number and range */
+    valToLightness(v, min, max) {
+        let lightness = 80 - ((v - min) * 65) / (max - min);
+        if (lightness < 20) {
+            lightness = 20;
+        }
+        if (lightness > 85) {
+            lightness = 85;
+        }
+        return lightness;
+    }
+    /** Return a opacity value from the passed number and range */
+    valToOpacity(v, min, max) {
+        let opacity = 0.2 + ((v - min) * 0.65) / (max - min);
+        if (opacity < 0.2) {
+            opacity = 0.2;
+        }
+        if (opacity > 0.8) {
+            opacity = 0.8;
+        }
+        return opacity;
+    }
+    /** Helper conversion of HSL to hexadecimal */
+    convHSLtoHEX(h, energy) {
+        const s = Math.floor(Math.random() * 101);
+        const l = this.valToLightness(energy, 1e-3, 1) / 100;
+        const a = (s * Math.min(l, 1 - l)) / 100;
+        const f = (n) => {
+            const k = (n + h / 30) % 12;
+            const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+            return Math.round(255 * color)
+                .toString(16)
+                .padStart(2, '0');
+        };
+        return `#${f(0)}${f(8)}${f(4)}`;
+    }
+}
+/** PDG ID to particle type name */
+Edm4hepJsonLoader.pidNames = {
+    11: edm4hep.ParticleType.Electron,
+    13: edm4hep.ParticleType.Muon,
+    22: edm4hep.ParticleType.Photon,
+    111: edm4hep.ParticleType.Pion,
+    211: edm4hep.ParticleType.Pion,
+    2212: edm4hep.ParticleType.Proton,
+    321: edm4hep.ParticleType.Kaon,
+};
+/** Colors per particle type, shared between tracks and hits
+ *  Tracks receive hex color without '#' */
+Edm4hepJsonLoader.pidColors = {
+    [edm4hep.ParticleType.Electron]: '00ff00',
+    [edm4hep.ParticleType.Muon]: 'ff00ff',
+    [edm4hep.ParticleType.Photon]: 'ff0000',
+    [edm4hep.ParticleType.Pion]: 'a52a2a',
+    [edm4hep.ParticleType.Proton]: '778899',
+    [edm4hep.ParticleType.Kaon]: '5f9ea0',
+    [edm4hep.ParticleType.Other]: '0000cd',
+};
+//# sourceMappingURL=edm4hep-json-loader.js.map
