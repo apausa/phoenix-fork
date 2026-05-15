@@ -437,7 +437,7 @@ export class Edm4hepJsonLoader extends PhoenixLoader {
         eta,
         phi: Math.atan2(py, px),
         theta: 2 * Math.atan(Math.exp(-eta)),
-        energy: rawJet.energy * 1000,
+        energy: rawJet.energy * 100,
         et: p === 0 ? 0 : (rawJet.energy * pt) / p,
         // coneR: (overrides cone radius for visualization width)
         origin_X: rawJet.referencePoint.x,
